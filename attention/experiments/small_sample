@@ -1,0 +1,1 @@
+python main.py --batch_size 128 --is_test 1   --dataset small

@@ -1,0 +1,2 @@
+rm -f log.train.small
+nohup python main.py --batch_size 128 --epochs 10000 --lr_init 1 --dataset small --patience 1000 > log.train.small& disown
