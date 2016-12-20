@@ -106,7 +106,10 @@ def main(_):
     config.s_nwords  = iterator.source_vocab_size
     config.t_nwords  = iterator.target_vocab_size
 
-    with tf.Session() as sess:
+    tf_config = tf.ConfigProto()
+    tf_config.gpu_options.per_process_gpu_memory_fraction = 0.4
+    #tf_config.gpu_options.allow_growth = False
+    with tf.Session(config = tf_config) as sess:
     #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         if not config.is_test:
             print ("==========================================================")

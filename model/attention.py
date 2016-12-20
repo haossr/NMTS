@@ -2,14 +2,14 @@ from __future__ import division
 from __future__ import print_function
 
 import os, sys, inspect
-# realpath() will make your script run, even if you symlink it :)
 cmd_folder = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
 if cmd_folder not in sys.path:
     sys.path.insert(0, cmd_folder)
 
 from datetime import datetime
 from bleu.length_analysis import process_files
-
+from model import Model
+from utils import *
 import tensorflow as tf
 import numpy as np
 import math
@@ -17,20 +17,7 @@ import os
 import time
 import collections
 
-class AttentionNN(object):
-    def timeit(method):
-        def timed(*args, **kw):
-            ts = time.time()
-            result = method(*args, **kw)
-            te = time.time()
-            print ('[{}'.format(method.__name__), 'takes {0:.2f} sec]'.format(te-ts))
-            return result
-        return timed
-   
-    def get_log_name(self):
-        date = datetime.now()
-        return "attention-{}-{}-{}-{}-{}".format(self.dataset, date.month, date.day, date.hour, date.minute)
-    
+class AttentionNN(Model):
     def __init__(self, config, sess):
         print('Reading config file...') 
         self.sess          = sess
@@ -71,24 +58,25 @@ class AttentionNN(object):
 
         #Data
         self.iterator       = config.iterator 
-        self.checkpoint_dir = config.checkpoint_dir
+        self.checkpoint_dir = config.checkpoint_dir + "/" + self.name + "/"
         self.dataset        = config.dataset
         self.train_size     = self.iterator.train_size  
         self.valid_size     = self.iterator.valid_size  
         self.test_size      = self.iterator.test_size  
         
+        self.prediction_data_path = "predict"
+
         if not os.path.isdir(self.checkpoint_dir):
             raise Exception("[!] Directory {} not found".format(self.checkpoint_dir))
 
-    ############################################################################
-    #Tensorflow model 
-    ############################################################################
     @timeit
     def build_variables(self): 
         self.global_step = tf.Variable(0, trainable=False, name="global_step")
-        self.learning_rate = tf.placeholder(tf.float32, shape=[])#lr = tf.Variable(self.lr_init, trainable=False, name="learning_rate")
+        self.learning_rate = tf.placeholder(tf.float32, shape=[])
+        self.valid_loss = tf.placeholder(tf.float32, shape=[])
+        self.bleu = tf.placeholder(tf.float32, shape=[])
         initializer = tf.random_uniform_initializer(self.minval, self.maxval) 
-        
+         
         print('1.Input layer') 
         with tf.variable_scope("input"):
             self.source     = tf.placeholder(tf.int32, [self.batch_size, self.max_size], name="source")
@@ -156,8 +144,6 @@ class AttentionNN(object):
                                        minval=self.minval, maxval=self.maxval), name="W_c")
             self.b_c = tf.Variable(tf.random_uniform([self.hidden_size],
                                        minval=self.minval, maxval=self.maxval), name="b_a")
-            
-            
             self.W_g = tf.Variable(tf.random_uniform([self.hidden_size, self.hidden_size],
                                        minval=self.minval, maxval=self.maxval), name="W_g")
              
@@ -188,7 +174,6 @@ class AttentionNN(object):
         logits     = []
         probs      = []
         print('3.Decoding and loss layer') 
-        # s is now final encoding hidden state
         with tf.variable_scope("decoder"):
             for t in xrange(self.max_size):
                 x = tf.squeeze(target_xs[t], [1])
@@ -229,7 +214,6 @@ class AttentionNN(object):
          
         #weights   = [tf.ones([self.batch_size]) for _ in xrange(self.max_size - 1)]
         self.loss  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
-        self.valid_loss  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
         self.probs = tf.transpose(tf.pack(probs), [1, 0, 2])
     
     @timeit
@@ -241,6 +225,7 @@ class AttentionNN(object):
                     decay_steps     = 10000,
                     decay_rate      = 0.96,
                     staircase       = True)  
+        
         self.optimizer = tf.contrib.layers.optimize_loss(
                         loss            = self.loss, 
                         global_step     = self.global_step,
@@ -251,8 +236,7 @@ class AttentionNN(object):
     @timeit
     def build_other_helpers(self):
         self.saver = tf.train.Saver(tf.trainable_variables())
-        #tf.scalar_summary("loss", self.loss)
-        #tf.scalar_summary("best training loss", self.best_loss)
+        #self.summarizer = tf.merge_all_summaries() 
         self.summarizer = tf.merge_summary([tf.scalar_summary("Learning Rate", self.learning_rate),
                                             tf.scalar_summary("Training Loss", self.loss)])
         
@@ -260,11 +244,6 @@ class AttentionNN(object):
         self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),\
                  self.sess.graph)
 
-       
-    @timeit
-    def initialization(self):
-        self.sess.run(tf.initialize_all_variables())
-      
     def lr_update(self):
         #exponential 
         if False:
@@ -279,11 +258,6 @@ class AttentionNN(object):
             self.lr = self.lr * 0.5
             print("Updating learning rate to {}".format(self.lr))
         
-    @timeit
-    def save(self): 
-        self.saver.save(self.sess, 
-                os.path.join(self.checkpoint_dir, self.get_log_name()))
-    
     def train_iter(self, dsource, source_len, dtarget, target_len):
         output = self.sess.run([self.loss, self.optimizer, self.summarizer],
                 feed_dict={self.learning_rate:  self.lr,
@@ -308,9 +282,6 @@ class AttentionNN(object):
                 print("Epoch: {}, Iteration: {}, Validation Loss: {}".format(epoch, step, self.test()))
             if step % 1000 == 1 and step > 1000: 
                 self.save() 
-                #test_loss, perplexity = self.test_iter()
-                #print("Epoch: {}, Iteration: {}, Test loss: {}, Perplexity: {}".format(epoch, step, test_loss, perplexity))
-        
              
     def train(self):
         self.build_model()
@@ -322,33 +293,33 @@ class AttentionNN(object):
             # TODO: report: bleu, training cost, sample translation, alignment.
             # TODO: BLEU score sample decoder  
             self.lr_update()
-    
+   
+    @timeit 
     def test(self):
         N = int(math.ceil(self.test_size/self.batch_size))
-        test_loss = 0
+        valid_loss = 0
         for dsource, source_len, dtarget, target_len in self.iterator.test_batch():
-            loss = self.sess.run([self.valid_loss],
+            loss = self.sess.run([self.loss],
                                  feed_dict = {self.source:         dsource,
                                               self.target:         dtarget,
                                               self.source_len:     source_len,
                                               self.target_len:     target_len
                                    })
-            test_loss += loss[0]
-        test_loss /= N
-        self.losses.append(test_loss)
+            valid_loss += loss[0]
+        valid_loss /= N
+        self.valid_losses.append(valid_loss)
         step = self.global_step.eval() 
-        self.writer.add_summary(self.sess.run([self.test_summarizer], {self.valid_loss: test_loss})[0], step)
-        return test_loss 
+        self.writer.add_summary(self.sess.run([self.test_summarizer], {self.valid_loss: valid_loss})[0], step)
+        return valid_loss 
    
     @timeit
     def sample(self):
         self.build_test_model() 
         self.load()
-        iterator = self.get_testdata_iterator()
-        inv_source_vocab = {v:k for k,v in self.source_vocab.iteritems()} 
-        inv_target_vocab = {v:k for k,v in self.target_vocab.iteritems()} 
+        inv_source_vocab = {v:k for k,v in self.iterator.source_vocab.iteritems()} 
+        inv_target_vocab = {v:k for k,v in self.iterator.target_vocab.iteritems()} 
         samples  = []
-        for dsource, source_len, _, _ in iterator:
+        for dsource, source_len, _, _ in self.iterator.valid_batch():
             print("###########################################################") 
             print("Source sentence") 
             print("###########################################################") 
@@ -356,7 +327,7 @@ class AttentionNN(object):
                 print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]))
             psuedo_target_len = [self.max_size - 1 for _ in xrange(self.batch_size)]
             #psuedo_target_len = [[self.target_vocab["<s>"]] + [self.target_vocab["<pad>"]] * (self.max_size-1)]
-            dtarget = [[self.target_vocab["<pad>"]] * self.max_size]
+            dtarget = [[self.iterator.target_vocab["<pad>"]] * self.max_size]
             psuedo_dtarget = dtarget * self.batch_size
             
             probs,  = self.sess.run([self.probs], 
@@ -367,7 +338,7 @@ class AttentionNN(object):
             print("###########################################################") 
             print("Target sentence") 
             print("###########################################################") 
-            with open(self.prediction_data_path, 'w+') as prediction_file:
+            with open(self.prediction_data_path, 'a') as prediction_file:
                 for j in range(self.batch_size):
                     target_probs    = probs[j]
                     target_indices  = np.argmax(target_probs, 1)
@@ -381,32 +352,8 @@ class AttentionNN(object):
                             break
                     print(" ".join(target_sentence))
                     print(" ".join(target_sentence), file=prediction_file)
-            process_files(self.prediction_data_path, self.target_data_path) 
+        process_files(self.prediction_data_path, self.iterator.valid_target_data_path) 
     
-    def build_model(self):
-        print('-------------Variable building') 
-        self.build_variables() 
-        print('-------------Graph building') 
-        self.build_graph()
-        print('There are {} parameters in the graph.'.format(self.countParameters())) 
-        print('-------------Optimizer building') 
-        self.build_optimizer() 
-        print('-------------Saver, writer and summarizer building') 
-        self.build_other_helpers() 
-        print('-------------Variable initialization') 
-        self.initialization()
-   
-    def build_test_model(self):
-        print('-------------Variable building') 
-        self.build_variables() 
-        print('-------------Graph building') 
-        self.build_graph()
-        print('There are {} parameters in the graph.'.format(self.countParameters())) 
-        #print('-------------Optimizer building') 
-        #self.build_optimizer() 
-        print('-------------Saver, writer and summarizer building') 
-        self.build_other_helpers() 
-             
     @timeit
     def load(self):
         print("[*] Reading checkpoints...")
@@ -416,12 +363,4 @@ class AttentionNN(object):
         else:
             raise Exception("[!] No checkpoint found")
 
-    def countParameters(self): 
-        total_parameters = 0
-        for variable in tf.trainable_variables():
-            shape = variable.get_shape()
-            variable_parametes = 1
-            for dim in shape:
-                variable_parametes *= dim.value
-                total_parameters += variable_parametes
-        return total_parameters
+    

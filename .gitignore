@@ -95,4 +95,5 @@ data/*/
 
 # Logs and checkpoints
 logs/
+log.*
 checkpoints/
