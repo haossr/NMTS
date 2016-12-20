@@ -59,13 +59,17 @@ class AttentionNN(Model):
         #Data
         self.iterator       = config.iterator 
         self.checkpoint_dir = config.checkpoint_dir + "/" + self.name + "/"
+        self.checkpointName = config.checkpointName 
         self.dataset        = config.dataset
         self.train_size     = self.iterator.train_size  
         self.valid_size     = self.iterator.valid_size  
         self.test_size      = self.iterator.test_size  
         
         self.prediction_data_path = "predict"
-
+        self.truth_data_path = "truth"
+        self.is_test         = config.is_test
+        
+        
         if not os.path.isdir(self.checkpoint_dir):
             raise Exception("[!] Directory {} not found".format(self.checkpoint_dir))
 
@@ -156,7 +160,6 @@ class AttentionNN(Model):
             target_xs = tf.nn.embedding_lookup(self.t_emb, self.target)
             target_xs = tf.split(1, self.max_size, target_xs)
             
-            
         print('2.Encoding layer') 
         initial_state = self.encoder.zero_state(self.batch_size, tf.float32)
         s = initial_state
@@ -166,22 +169,20 @@ class AttentionNN(Model):
                 x = tf.squeeze(source_xs[t], [1])
                 x = tf.matmul(x, self.s_proj_W) + self.s_proj_b
                 if t > 0: tf.get_variable_scope().reuse_variables()
-                hs = self.encoder(x, s)
-                s = hs[1]
-                h = hs[0]
+                h, s = self.encoder(x, s)
                 encoder_hs.append(h)
-
+        
         logits     = []
         probs      = []
+        s = self.decoder.zero_state(self.batch_size, tf.float32) 
         print('3.Decoding and loss layer') 
         with tf.variable_scope("decoder"):
             for t in xrange(self.max_size):
-                x = tf.squeeze(target_xs[t], [1])
+                if not self.is_test or t == 0: 
+                    x = tf.squeeze(target_xs[t], [1])
                 x = tf.matmul(x, self.t_proj_W) + self.t_proj_b
                 if t > 0: tf.get_variable_scope().reuse_variables()
-                hs = self.decoder(x, s)
-                s = hs[1]
-                h = hs[0]
+                h, s = self.decoder(x, s)
 
                 #Concating score
                 #scores = [tf.matmul(tf.tanh(tf.batch_matmul(tf.concat(1, [h, h_s]),\
@@ -205,6 +206,11 @@ class AttentionNN(Model):
                 prob  = tf.nn.softmax(logit)
                 logits.append(logit)
                 probs.append(prob)
+
+                if self.is_test:
+                    x = tf.cast(tf.argmax(prob, 1), tf.int32)
+                    x = tf.nn.embedding_lookup(self.t_emb, x)
+
 
         logits     = logits[:-1]
         targets    = tf.split(1, self.max_size, self.target)[1:]
@@ -241,8 +247,8 @@ class AttentionNN(Model):
                                             tf.scalar_summary("Training Loss", self.loss)])
         
         self.test_summarizer = tf.scalar_summary("Validation Loss", self.valid_loss)
-        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),\
-                 self.sess.graph)
+        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name),
+                     self.sess.graph)
 
     def lr_update(self):
         #exponential 
@@ -291,7 +297,6 @@ class AttentionNN(Model):
             print("In epoch {}".format(epoch))
             self.train_epoch(epoch)
             # TODO: report: bleu, training cost, sample translation, alignment.
-            # TODO: BLEU score sample decoder  
             self.lr_update()
    
     @timeit 
@@ -314,8 +319,8 @@ class AttentionNN(Model):
    
     @timeit
     def sample(self):
-        self.build_test_model() 
-        self.load()
+        if os.path.exists(self.prediction_data_path): os.remove(self.prediction_data_path) 
+        if os.path.exists(self.truth_data_path): os.remove(self.truth_data_path) 
         inv_source_vocab = {v:k for k,v in self.iterator.source_vocab.iteritems()} 
         inv_target_vocab = {v:k for k,v in self.iterator.target_vocab.iteritems()} 
         samples  = []
@@ -323,11 +328,14 @@ class AttentionNN(Model):
             print("###########################################################") 
             print("Source sentence") 
             print("###########################################################") 
-            for ds in dsource:
-                print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]))
+            with open(self.truth_data_path, 'a') as truth_file:
+                for ds in dsource:
+                    print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]))
+                    print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]), file=truth_file)
             psuedo_target_len = [self.max_size - 1 for _ in xrange(self.batch_size)]
             #psuedo_target_len = [[self.target_vocab["<s>"]] + [self.target_vocab["<pad>"]] * (self.max_size-1)]
-            dtarget = [[self.iterator.target_vocab["<pad>"]] * self.max_size]
+            
+            dtarget = [[self.iterator.target_vocab["<s>"]] + [self.iterator.target_vocab["<pad>"]] * (self.max_size-1)]
             psuedo_dtarget = dtarget * self.batch_size
             
             probs,  = self.sess.run([self.probs], 
@@ -339,7 +347,7 @@ class AttentionNN(Model):
             print("Target sentence") 
             print("###########################################################") 
             with open(self.prediction_data_path, 'a') as prediction_file:
-                for j in range(self.batch_size):
+                for j in xrange(self.batch_size):
                     target_probs    = probs[j]
                     target_indices  = np.argmax(target_probs, 1)
                     target_sentence = []
@@ -352,15 +360,22 @@ class AttentionNN(Model):
                             break
                     print(" ".join(target_sentence))
                     print(" ".join(target_sentence), file=prediction_file)
-        process_files(self.prediction_data_path, self.iterator.valid_target_data_path) 
+        process_files(self.prediction_data_path, self.truth_data_path) 
+        return samples 
     
     @timeit
     def load(self):
-        print("[*] Reading checkpoints...")
-        ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-        else:
-            raise Exception("[!] No checkpoint found")
+        self.build_test_model() 
+        if self.checkpointName:
+            print("[*] Reading checkpoints...")
+            new_saver = tf.train.import_meta_graph(self.checkpoint_dir + self.checkpointName + '.meta')
+            new_saver.restore(self.sess, tf.train.latest_checkpoint(self.checkpoint_dir))
+        else:   
+            print("[*] Reading checkpoints...")
+            ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
+            if ckpt and ckpt.model_checkpoint_path:
+                self.saver.restore(self.sess, ckpt.model_checkpoint_path)
+            else:
+                raise Exception("[!] No checkpoint found")
 
     

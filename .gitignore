@@ -97,3 +97,5 @@ data/*/
 logs/
 log.*
 checkpoints/
+predict
+truth

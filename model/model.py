@@ -68,6 +68,9 @@ class Model(object):
         self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),\
                  self.sess.graph)
 
+    @timeit
+    def build_saver(self):
+        self.saver = tf.train.Saver(tf.trainable_variables())
        
     @timeit
     def initialization(self):
@@ -104,7 +107,7 @@ class Model(object):
     @timeit
     def save(self): 
         self.saver.save(self.sess, 
-                os.path.join(self.checkpoint_dir, self.get_log_name()))
+                os.path.join(self.checkpoint_dir, self.name + "-" + self.dataset))
     
     #TODO: validation error every 100 iter 
     @timeit
@@ -156,8 +159,8 @@ class Model(object):
         print('There are {} parameters in the graph.'.format(self.countParameters())) 
         #print('-------------Optimizer building') 
         #self.build_optimizer() 
-        print('-------------Saver, writer and summarizer building') 
-        self.build_other_helpers() 
+        print('-------------Saver') 
+        self.build_saver() 
               
     def train(self):
         self.build_model()
@@ -194,7 +197,7 @@ class Model(object):
         pass
 
     @timeit
-    def load(self):
+    def load(self, checkpointName = None):
         print("[*] Reading checkpoints...")
         ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:

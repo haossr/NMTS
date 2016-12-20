@@ -1,0 +1,1 @@
+python main.py --batch_size 10 --epochs 100000 --lr_init 1 --num_layers 1 --hidden_size 128 --dataset debug --patience 1000  --is_test 1 --checkpointName attention-debug
