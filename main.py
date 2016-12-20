@@ -1,9 +1,15 @@
 from __future__ import division
 from __future__ import print_function
 
-from model import AttentionNN
-from data import read_vocabulary
-from test_iterator import test_iterator
+import os, sys, inspect
+# realpath() will make your script run, even if you symlink it :)
+cmd_folder = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+if cmd_folder not in sys.path:
+    sys.path.insert(0, cmd_folder)
+
+from model.attention import AttentionNN
+from data.iterator import * 
+from bleu.length_analysis import process_files       
 
 import random
 import tensorflow as tf
@@ -25,7 +31,7 @@ flags.DEFINE_float("lr_init", 1.0, "Initial learning rate [1.0]")
 flags.DEFINE_float("max_grad_norm", 5.0, "Maximum gradient cutoff [5.0]")
 flags.DEFINE_string("optimizer_name", "SGD", "Optimizer choice [SGD]")
 flags.DEFINE_string("checkpoint_dir", "checkpoints", "Checkpoint directory [checkpoints]")
-flags.DEFINE_string("dataset", "debug", "Dataset to use [debug]")
+flags.DEFINE_string("dataset", "small", "Dataset to use [small]")
 flags.DEFINE_boolean("is_test", False, "True for testing, False for training [False]")
 flags.DEFINE_boolean("show", False, "Show progress [True]")
 
@@ -34,35 +40,35 @@ FLAGS = flags.FLAGS
 tf.set_random_seed(FLAGS.random_seed)
 random.seed(FLAGS.random_seed)
 
-
 class debug:
-    source_data_path      = "data/debug/train.en"
-    target_data_path      = "data/debug/train.vi"
-    source_vocab_path     = "data/debug/vocab.en"
-    target_vocab_path     = "data/debug/vocab.vi"
-    test_source_data_path = "data/debug/train.en"
-    test_target_data_path = "data/debug/train.vi"
-    prediction_data_path  = "data/debug/prediction.vi" 
+    train_source_data_path = "data/debug/train.en"
+    train_target_data_path = "data/debug/train.vi"
+    source_vocab_path      = "data/debug/vocab.en"
+    target_vocab_path      = "data/debug/vocab.vi"
+    test_source_data_path  = "data/debug/test.en"
+    test_target_data_path  = "data/debug/test.vi"
+    valid_source_data_path = "data/debug/valid.en"
+    valid_target_data_path = "data/debug/valid.vi"
  
 class small:
-    source_data_path      = "data/small/train.en"
-    target_data_path      = "data/small/train.vi"
-    source_vocab_path     = "data/small/vocab.en"
-    target_vocab_path     = "data/small/vocab.vi"
-    test_source_data_path = "data/small/tst2012.en"
-    test_target_data_path = "data/small/tst2012.vi"
-    prediction_data_path  = "data/small/prediction.vi" 
-
-
+    train_source_data_path = "data/small/train.en"
+    train_target_data_path = "data/small/train.vi"
+    source_vocab_path      = "data/small/vocab.en"
+    target_vocab_path      = "data/small/vocab.vi"
+    test_source_data_path  = "data/small/test.en"
+    test_target_data_path  = "data/small/test.vi"
+    valid_source_data_path = "data/small/valid.en"
+    valid_target_data_path = "data/small/valid.vi"
 
 class medium:
-    source_data_path      = "data/medium/train.en"
-    target_data_path      = "data/medium/train.de"
-    source_vocab_path     = "data/medium/vocab.en"
-    target_vocab_path     = "data/medium/vocab.de"
-    test_source_data_path = "data/medium/test.en"
-    test_target_data_path = "data/medium/test.de"
-
+    train_source_data_path = "data/medium/train.en"
+    train_target_data_path = "data/medium/train.vi"
+    source_vocab_path      = "data/medium/vocab.en"
+    target_vocab_path      = "data/medium/vocab.vi"
+    test_source_data_path  = "data/medium/test.en"
+    test_target_data_path  = "data/medium/test.vi"
+    valid_source_data_path = "data/medium/valid.en"
+    valid_target_data_path = "data/medium/valid.vi"
 
 def main(_):
     config = FLAGS
@@ -76,20 +82,30 @@ def main(_):
         data_config = debug
     else:
         raise Exception("[!] Unknown dataset {}".format(config.dataset))
-
-    config.source_data_path      = data_config.source_data_path
-    config.target_data_path      = data_config.target_data_path
+    
+    iterator = DataIter(data_config.train_source_data_path, 
+                        data_config.train_target_data_path,
+                        data_config.source_vocab_path,
+                        data_config.target_vocab_path,
+                        config.max_size,
+                        config.batch_size,
+                        data_config.valid_source_data_path, 
+                        data_config.valid_target_data_path,
+                        data_config.test_source_data_path, 
+                        data_config.test_target_data_path
+                        )
+   
+    config.source_data_path      = data_config.train_source_data_path
+    config.target_data_path      = data_config.train_target_data_path
     config.source_vocab_path     = data_config.source_vocab_path
     config.target_vocab_path     = data_config.target_vocab_path
     config.test_source_data_path = data_config.test_source_data_path 
     config.test_target_data_path = data_config.test_target_data_path 
-    config.prediction_data_path  = data_config.prediction_data_path
     
-    s_nwords  = len(read_vocabulary(config.source_vocab_path))
-    t_nwords  = len(read_vocabulary(config.target_vocab_path))
+    config.iterator  = iterator
+    config.s_nwords  = iterator.source_vocab_size
+    config.t_nwords  = iterator.target_vocab_size
 
-    config.s_nwords  = s_nwords
-    config.t_nwords  = t_nwords
     with tf.Session() as sess:
     #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         if not config.is_test:
@@ -97,12 +113,7 @@ def main(_):
             print ("==================== Training Mode =======================")
             print ("==========================================================")
             print ("-------------------- Test iterator... --------------------")
-            test_iterator(config.source_data_path, 
-                    config.target_data_path, 
-                    read_vocabulary(config.source_vocab_path),
-                    read_vocabulary(config.target_vocab_path),
-                    config.max_size,
-                    config.batch_size)
+            iterator.test() 
             print ("-------------------- Start building model... -------------")
             attn = AttentionNN(config, sess)
             print ("") 
@@ -117,7 +128,6 @@ def main(_):
             attn.sample() 
             #perplexity = attn.test()
             #print("Perplexity: {}".format(perplexity))
-
 
 if __name__ == "__main__":
     tf.app.run()

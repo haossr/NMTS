@@ -94,5 +94,5 @@ ENV/
 data/*/
 
 # Logs and checkpoints
-*/logs/
-*/checkpoints/
+logs/
+checkpoints/
