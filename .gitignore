@@ -99,3 +99,4 @@ log.*
 checkpoints/
 predict
 truth
+log

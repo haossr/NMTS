@@ -247,7 +247,7 @@ class AttentionNN(Model):
                                             tf.scalar_summary("Training Loss", self.loss)])
         
         self.test_summarizer = tf.scalar_summary("Validation Loss", self.valid_loss)
-        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name),
+        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),
                      self.sess.graph)
 
     def lr_update(self):
@@ -324,14 +324,14 @@ class AttentionNN(Model):
         inv_source_vocab = {v:k for k,v in self.iterator.source_vocab.iteritems()} 
         inv_target_vocab = {v:k for k,v in self.iterator.target_vocab.iteritems()} 
         samples  = []
-        for dsource, source_len, _, _ in self.iterator.valid_batch():
+        for dsource, source_len, dtarget, target_len in self.iterator.valid_batch():
             print("###########################################################") 
             print("Source sentence") 
             print("###########################################################") 
             with open(self.truth_data_path, 'a') as truth_file:
-                for ds in dsource:
+                for ds, dt in zip(dsource, dtarget):
                     print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]))
-                    print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]), file=truth_file)
+                    print(" ".join(reversed([inv_target_vocab[i] for i in reversed(dt) if inv_target_vocab[i] != "<pad>"])), file=truth_file)
             psuedo_target_len = [self.max_size - 1 for _ in xrange(self.batch_size)]
             #psuedo_target_len = [[self.target_vocab["<s>"]] + [self.target_vocab["<pad>"]] * (self.max_size-1)]
             
