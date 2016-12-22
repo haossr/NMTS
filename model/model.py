@@ -208,6 +208,7 @@ class Model(object):
     def countParameters(self): 
         total_parameters = 0
         for variable in tf.trainable_variables():
+            print("Tensor name: {}; Shape: {}".format(variable.name, variable.get_shape())) 
             shape = variable.get_shape()
             variable_parametes = 1
             for dim in shape:

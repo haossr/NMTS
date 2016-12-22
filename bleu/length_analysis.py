@@ -89,14 +89,15 @@ def compute_bleu(bleu_script, lines):
 
   return bleu
 
-def score_length(lines, sorted_lens):
+def score_length(lines, sorted_lens, verbose = False):
   bleus = []
   bleus_cum = []
   lens = []
   total_eval = []
   prev_num_sents = 0
   bleu_script = os.path.dirname(os.path.realpath(__file__)) + '/multi-bleu.perl'
-  sys.stderr.write('# bleu_script = %s\n' % bleu_script)
+  if verbose:
+    sys.stderr.write('# bleu_script = %s\n' % bleu_script)
 
   group_size = 200
   num_total_sents = len(lines)
@@ -118,18 +119,18 @@ def score_length(lines, sorted_lens):
 
     if num_sents == num_total_sents:
       break
+  if verbose:
+    print 'bleu\tbleu_cum\tlen\tsize'
+    for bleu, bleu_cum, score, num_eval in zip(bleus,bleus_cum,lens,total_eval):
+      print bleu + "\t" + bleu_cum + "\t\t" + repr(score) + "\t" + repr(num_eval)
+  return bleus_cum[-1]
 
-  print 'bleu\tbleu_cum\tlen\tsize'
-  for bleu, bleu_cum, score, num_eval in zip(bleus,bleus_cum,lens,total_eval):
-    print bleu + "\t" + bleu_cum + "\t\t" + repr(score) + "\t" + repr(num_eval)
-
-
-def process_files(trans_file, ref_file):
+def process_files(trans_file, ref_file, verbose = False):
   """
   Read data from trans_file, and output to ref_file
   """
-
-  sys.stderr.write('# trans_file = %s, ref_file = %s\n' % (trans_file, ref_file))
+  if verbose:
+    sys.stderr.write('# trans_file = %s, ref_file = %s\n' % (trans_file, ref_file))
 
   # input
   ref_inf  = codecs.open(ref_file, 'r', 'utf-8')
@@ -139,10 +140,12 @@ def process_files(trans_file, ref_file):
   trans_inf = codecs.open(trans_file, 'r', 'utf-8')
   trans_lines = trans_inf.readlines()
   trans_inf.close()
-  print(len(trans_lines), len(ref_lines))
+  if verbose:
+    print(len(trans_lines), len(ref_lines))
   assert len(trans_lines) == len(ref_lines)
   num_lines = len(trans_lines)
-  sys.stderr.write('Num lines = %d\n' % num_lines)
+  if verbose:
+    sys.stderr.write('Num lines = %d\n' % num_lines)
   lines = []
   lens = []
   for ii in xrange(num_lines):
@@ -160,8 +163,8 @@ def process_files(trans_file, ref_file):
     sorted_lens.append(lens[ii])
 
   # score
-  score_length(sorted_lines, sorted_lens)
+  return score_length(sorted_lines, sorted_lens, verbose)
 
 if __name__ == '__main__':
   args = process_command_line()
-  process_files(args.trans_file, args.ref_file)
+  print process_files(args.trans_file, args.ref_file)

@@ -1,4 +1,4 @@
-##Neural Machine Translation (attention and zero-shot)
+#Neural Machine Translation (attention and zero-shot)
 This project is developed during Prof. Andrew Ng's deep learning boot camp, where we implemented and explored two states of art machine translation models: Attention-based NMT and GNMT. The details of the models could be accessed by both the original paper listed or my review in project reports. 
 
 The architecture (of the repo, not the model) refers to the implementation of [MemN2N](https://github.com/carpedm20/MemN2N-tensorflow) quite a lot: We separate the model from data, logging, and preprocessing modules, and use a single interface for ML model of similar tasks. 

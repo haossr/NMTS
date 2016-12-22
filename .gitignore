@@ -100,3 +100,6 @@ checkpoints/
 predict
 truth
 log
+
+# Temp files
+zeroShot/

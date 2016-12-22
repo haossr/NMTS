@@ -246,7 +246,8 @@ class AttentionNN(Model):
         self.summarizer = tf.merge_summary([tf.scalar_summary("Learning Rate", self.learning_rate),
                                             tf.scalar_summary("Training Loss", self.loss)])
         
-        self.test_summarizer = tf.scalar_summary("Validation Loss", self.valid_loss)
+        self.test_summarizer = tf.merge_summary([tf.scalar_summary("Validation Loss", self.valid_loss), 
+                                                 tf.scalar_summary("BLEU", self.bleu)])
         self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),
                      self.sess.graph)
 
@@ -285,10 +286,15 @@ class AttentionNN(Model):
             if step % 10 == 1:
                 print("Epoch: {}, Iteration: {}, Loss: {}".format(epoch, step, outputs[0]))
             if step % 100 == 1:
-                print("Epoch: {}, Iteration: {}, Validation Loss: {}".format(epoch, step, self.test()))
+                valid_loss = self.test()
+                bleu = self.sample()
+                step = self.global_step.eval() 
+                self.writer.add_summary(self.sess.run([self.test_summarizer], 
+                    {self.valid_loss: valid_loss, self.bleu: bleu})[0], step)
+                print("Epoch: {}, Iteration: {}, Validation Loss: {}, BLEU: {}".format(epoch, step, valid_loss, bleu))
             if step % 1000 == 1 and step > 1000: 
                 self.save() 
-             
+              
     def train(self):
         self.build_model()
         N = int(math.ceil(self.train_size/self.batch_size))
@@ -296,8 +302,12 @@ class AttentionNN(Model):
             self.epoch = epoch 
             print("In epoch {}".format(epoch))
             self.train_epoch(epoch)
-            # TODO: report: bleu, training cost, sample translation, alignment.
             self.lr_update()
+            #Early stop
+            step = self.global_step.eval() 
+            if step > 2 * self.patience and np.min(self.valid_losses[-self.patience:-1]) > np.min(self.valid_losses):
+                print("EARLY STOP") 
+                break
    
     @timeit 
     def test(self):
@@ -313,25 +323,26 @@ class AttentionNN(Model):
             valid_loss += loss[0]
         valid_loss /= N
         self.valid_losses.append(valid_loss)
-        step = self.global_step.eval() 
-        self.writer.add_summary(self.sess.run([self.test_summarizer], {self.valid_loss: valid_loss})[0], step)
         return valid_loss 
    
     @timeit
-    def sample(self):
+    def sample(self, verbose=False):
+        if self.is_test: verbose = True
         if os.path.exists(self.prediction_data_path): os.remove(self.prediction_data_path) 
         if os.path.exists(self.truth_data_path): os.remove(self.truth_data_path) 
         inv_source_vocab = {v:k for k,v in self.iterator.source_vocab.iteritems()} 
         inv_target_vocab = {v:k for k,v in self.iterator.target_vocab.iteritems()} 
+        #print(inv_target_vocab)
         samples  = []
         for dsource, source_len, dtarget, target_len in self.iterator.valid_batch():
-            print("###########################################################") 
-            print("Source sentence") 
-            print("###########################################################") 
+            if verbose:
+                print("###########################################################") 
+                print("Source sentence") 
+                print("###########################################################") 
             with open(self.truth_data_path, 'a') as truth_file:
                 for ds, dt in zip(dsource, dtarget):
-                    print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]))
-                    print(" ".join(reversed([inv_target_vocab[i] for i in reversed(dt) if inv_target_vocab[i] != "<pad>"])), file=truth_file)
+                    if verbose: print(" ".join([inv_source_vocab[i] for i in reversed(ds) if inv_source_vocab[i] != "<pad>"]))
+                    print(" ".join(reversed([inv_target_vocab[i] for i in reversed(dt) if inv_target_vocab[i] not in ["<pad>", "<s>", "</s>"]])), file=truth_file)
             psuedo_target_len = [self.max_size - 1 for _ in xrange(self.batch_size)]
             #psuedo_target_len = [[self.target_vocab["<s>"]] + [self.target_vocab["<pad>"]] * (self.max_size-1)]
             
@@ -343,9 +354,10 @@ class AttentionNN(Model):
                         self.target:         psuedo_dtarget,
                         self.source_len:     source_len,
                         self.target_len:     psuedo_target_len})
-            print("###########################################################") 
-            print("Target sentence") 
-            print("###########################################################") 
+            if verbose:
+                print("###########################################################") 
+                print("Target sentence") 
+                print("###########################################################") 
             with open(self.prediction_data_path, 'a') as prediction_file:
                 for j in xrange(self.batch_size):
                     target_probs    = probs[j]
@@ -358,10 +370,13 @@ class AttentionNN(Model):
                             target_sentence.append(next_word)
                         else:
                             break
-                    print(" ".join(target_sentence))
                     print(" ".join(target_sentence), file=prediction_file)
-        process_files(self.prediction_data_path, self.truth_data_path) 
-        return samples 
+        bleu = 0
+        try:
+            bleu = process_files(self.prediction_data_path, self.truth_data_path, True) 
+        except Exception:
+            pass
+        return bleu 
     
     @timeit
     def load(self):
