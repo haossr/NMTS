@@ -172,14 +172,13 @@ class AttentionNN(Model):
                 h, s = self.encoder(x, s)
                 encoder_hs.append(h)
         
-        logits     = []
-        probs      = []
-        s = self.decoder.zero_state(self.batch_size, tf.float32) 
         print('3.Decoding and loss layer') 
         with tf.variable_scope("decoder"):
+            logits     = []
+            probs      = []
+            s = self.decoder.zero_state(self.batch_size, tf.float32) 
             for t in xrange(self.max_size):
-                if not self.is_test or t == 0: 
-                    x = tf.squeeze(target_xs[t], [1])
+                x = tf.squeeze(target_xs[t], [1])
                 x = tf.matmul(x, self.t_proj_W) + self.t_proj_b
                 if t > 0: tf.get_variable_scope().reuse_variables()
                 h, s = self.decoder(x, s)
@@ -207,20 +206,51 @@ class AttentionNN(Model):
                 logits.append(logit)
                 probs.append(prob)
 
-                if self.is_test:
-                    x = tf.cast(tf.argmax(prob, 1), tf.int32)
-                    x = tf.nn.embedding_lookup(self.t_emb, x)
+            logits     = logits[:-1]
+            targets    = tf.split(1, self.max_size, self.target)[1:]
+            weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
+                                          maxlen  = self.max_size-1,
+                                          dtype   = tf.float32), None, 1)
+            self.loss  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
+            self.probs = tf.transpose(tf.pack(probs), [1, 0, 2])
+    
+        print('4.Decoding and loss layer (testing)') 
+        with tf.variable_scope("decoder-test"):
+            logits     = []
+            probs      = []
+            s = self.decoder.zero_state(self.batch_size, tf.float32) 
+            for t in xrange(self.max_size):
+                if t == 0: 
+                    x = tf.squeeze(target_xs[t], [1])
+                x = tf.matmul(x, self.t_proj_W) + self.t_proj_b
+                if t > 0: tf.get_variable_scope().reuse_variables()
+                h, s = self.decoder(x, s)
 
+                scores = [tf.reduce_sum(tf.mul(h, h_s),1) for h_s in encoder_hs]
+                scores = tf.nn.softmax(tf.reshape(tf.pack(scores),
+                                       [self.batch_size, self.max_size]))
+                #Attention layer 
+                c_t = tf.reduce_sum([a_s*h_s for a_s, h_s in
+                                     zip(tf.split(1, self.max_size, scores),
+                                         encoder_hs)], 0)
+                h_t = tf.batch_matmul(tf.concat(1, [h, c_t]), self.W_c) + self.b_c
+                
+                outemb = tf.batch_matmul(h_t, self.proj_W) + self.proj_b
+                logit = tf.batch_matmul(outemb, self.proj_Wo) + self.proj_bo
+                prob  = tf.nn.softmax(logit)
+                logits.append(logit)
+                probs.append(prob)
 
-        logits     = logits[:-1]
-        targets    = tf.split(1, self.max_size, self.target)[1:]
-        weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
-                                      maxlen  = self.max_size-1,
-                                      dtype   = tf.float32), None, 1)
-         
-        #weights   = [tf.ones([self.batch_size]) for _ in xrange(self.max_size - 1)]
-        self.loss  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
-        self.probs = tf.transpose(tf.pack(probs), [1, 0, 2])
+                x = tf.cast(tf.argmax(prob, 1), tf.int32)
+                x = tf.nn.embedding_lookup(self.t_emb, x)
+
+            logits     = logits[:-1]
+            targets    = tf.split(1, self.max_size, self.target)[1:]
+            weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
+                                          maxlen  = self.max_size-1,
+                                          dtype   = tf.float32), None, 1)
+            self.loss_test  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
+            self.probs_test = tf.transpose(tf.pack(probs), [1, 0, 2])
     
     @timeit
     def build_optimizer(self):
@@ -349,7 +379,7 @@ class AttentionNN(Model):
             dtarget = [[self.iterator.target_vocab["<s>"]] + [self.iterator.target_vocab["<pad>"]] * (self.max_size-1)]
             psuedo_dtarget = dtarget * self.batch_size
             
-            probs,  = self.sess.run([self.probs], 
+            probs,  = self.sess.run([self.probs_test], 
                         feed_dict = {self.source: dsource,
                         self.target:         psuedo_dtarget,
                         self.source_len:     source_len,
