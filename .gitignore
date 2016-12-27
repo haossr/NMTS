@@ -103,3 +103,4 @@ log
 
 # Temp files
 zeroShot/
+tmp*

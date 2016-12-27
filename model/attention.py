@@ -215,7 +215,7 @@ class AttentionNN(Model):
             self.probs = tf.transpose(tf.pack(probs), [1, 0, 2])
     
         print('4.Decoding and loss layer (testing)') 
-        with tf.variable_scope("decoder-test"):
+        with tf.variable_scope("decoder", reuse=True):
             logits     = []
             probs      = []
             s = self.decoder.zero_state(self.batch_size, tf.float32) 
