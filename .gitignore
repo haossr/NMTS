@@ -96,6 +96,7 @@ data/*/
 # Logs and checkpoints
 logs/
 log.*
+error.*
 checkpoints/
 predict
 truth

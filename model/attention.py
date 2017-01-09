@@ -207,9 +207,14 @@ class AttentionNN(Model):
 
             logits     = logits[:-1]
             targets    = tf.split(1, self.max_size, self.target)[1:]
-            weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
-                                          maxlen  = self.max_size-1,
-                                          dtype   = tf.float32), None, 1)
+            weights    = tf.unpack(tf.to_float(tf.less(tf.expand_dims(tf.range(0, self.max_size-1, 1), 1), 
+                                    tf.expand_dims(self.target_len, 0))
+                            ), None, 0)
+            
+            #TF11 
+            #weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
+            #                              maxlen  = self.max_size-1,
+            #                              dtype   = tf.float32), None, 1)
             self.loss  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
             self.probs = tf.transpose(tf.pack(probs), [1, 0, 2])
     
@@ -245,9 +250,14 @@ class AttentionNN(Model):
 
             logits     = logits[:-1]
             targets    = tf.split(1, self.max_size, self.target)[1:]
-            weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
-                                          maxlen  = self.max_size-1,
-                                          dtype   = tf.float32), None, 1)
+            weights    = tf.unpack(tf.to_float(tf.less(tf.expand_dims(tf.range(0, self.max_size-1, 1), 1), 
+                                    tf.expand_dims(self.target_len, 0))
+                            ), None, 0)
+            
+            #TF11 
+            #weights    = tf.unpack(tf.sequence_mask(lengths = self.target_len, 
+            #                              maxlen  = self.max_size-1,
+            #                              dtype   = tf.float32), None, 1)
             self.loss_test  = tf.nn.seq2seq.sequence_loss(logits, targets, weights)
             self.probs_test = tf.transpose(tf.pack(probs), [1, 0, 2])
     
