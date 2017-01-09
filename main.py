@@ -34,6 +34,7 @@ flags.DEFINE_string("checkpoint_dir", "checkpoints", "Checkpoint directory [chec
 flags.DEFINE_string("checkpointName", None, "Checkpoint name [None]")
 flags.DEFINE_string("dataset", "small", "Dataset to use [small]")
 flags.DEFINE_boolean("is_test", False, "True for testing, False for training [False]")
+flags.DEFINE_boolean("reload", False, "Reload previous experiments [False]")
 flags.DEFINE_boolean("show", False, "Show progress [True]")
 
 FLAGS = flags.FLAGS
@@ -109,7 +110,8 @@ def main(_):
 
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.per_process_gpu_memory_fraction = 0.8
-    #tf_config.gpu_options.allow_growth = False
+    tf_config.gpu_options.allocator_type = 'BFC' 
+    tf_config.gpu_options.allow_growth = False
     with tf.Session(config = tf_config) as sess:
     #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         if not config.is_test:
@@ -120,6 +122,8 @@ def main(_):
             iterator.test() 
             print ("-------------------- Start building model... -------------")
             attn = AttentionNN(config, sess)
+            if config.reload:
+                attn.load() 
             print ("") 
             print ("-------------------- Start training... -------------------")
             attn.train()

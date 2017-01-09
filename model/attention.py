@@ -69,7 +69,6 @@ class AttentionNN(Model):
         self.truth_data_path = "truth"
         self.is_test         = config.is_test
         
-        
         if not os.path.isdir(self.checkpoint_dir):
             raise Exception("[!] Directory {} not found".format(self.checkpoint_dir))
 
@@ -283,17 +282,18 @@ class AttentionNN(Model):
 
     def lr_update(self):
         #exponential 
-        if False:
-            if self.epoch > 5 and self.global_step.eval() % 100 == 0:
-                self.lr = self.lr * 0.96
+        if True:
+            if self.epoch > 5 and self.global_step.eval() % 5000 == 0:
+                self.lr = self.lr * 0.5
                 print("Updating learning rate to {}".format(self.lr))
         #adaptive
-        if self.global_step.eval() % self.patience == 0 \
-           and self.global_step.eval() / self.patience >= 1 \
-           and np.min(self.losses[-self.patience:-1]) > self.best_loss:
-            self.best_loss = np.min(self.losses[-self.patience:-1]) 
-            self.lr = self.lr * 0.5
-            print("Updating learning rate to {}".format(self.lr))
+        if False:
+            if self.global_step.eval() % self.patience == 0 \
+               and self.global_step.eval() / self.patience >= 1 \
+               and np.min(self.losses[-self.patience:-1]) > self.best_loss:
+                self.best_loss = np.min(self.losses[-self.patience:-1]) 
+                self.lr = self.lr * 0.5
+                print("Updating learning rate to {}".format(self.lr))
         
     def train_iter(self, dsource, source_len, dtarget, target_len):
         output = self.sess.run([self.loss, self.optimizer, self.summarizer],
@@ -326,7 +326,8 @@ class AttentionNN(Model):
                 self.save() 
               
     def train(self):
-        self.build_model()
+        if not self.saver:
+            self.build_model()
         N = int(math.ceil(self.train_size/self.batch_size))
         for epoch in xrange(self.epochs):
             self.epoch = epoch 
@@ -335,7 +336,7 @@ class AttentionNN(Model):
             self.lr_update()
             #Early stop
             step = self.global_step.eval() 
-            if step > 2 * self.patience and np.min(self.valid_losses[-self.patience:-1]) > np.min(self.valid_losses):
+            if step > 20 * self.patience and np.min(self.valid_losses[-20*self.patience:-1]) > np.min(self.valid_losses):
                 print("EARLY STOP") 
                 break
    
@@ -410,7 +411,7 @@ class AttentionNN(Model):
     
     @timeit
     def load(self):
-        self.build_test_model() 
+        self.build_model() 
         if self.checkpointName:
             print("[*] Reading checkpoints...")
             new_saver = tf.train.import_meta_graph(self.checkpoint_dir + self.checkpointName + '.meta')
@@ -422,5 +423,3 @@ class AttentionNN(Model):
                 self.saver.restore(self.sess, ckpt.model_checkpoint_path)
             else:
                 raise Exception("[!] No checkpoint found")
-
-    
