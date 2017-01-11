@@ -1,7 +1,7 @@
 from __future__ import division
 from __future__ import print_function
 
-import os, sys, inspect
+import os, sys, inspect, logging
 # realpath() will make your script run, even if you symlink it :)
 cmd_folder = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
 if cmd_folder not in sys.path:
@@ -109,9 +109,9 @@ def main(_):
     config.t_nwords  = iterator.target_vocab_size
 
     tf_config = tf.ConfigProto()
-    tf_config.gpu_options.per_process_gpu_memory_fraction = 0.8
-    tf_config.gpu_options.allocator_type = 'BFC' 
-    tf_config.gpu_options.allow_growth = False
+    #tf_config.gpu_options.per_process_gpu_memory_fraction = 0.8
+    #tf_config.gpu_options.allocator_type = 'BFC' 
+    #tf_config.gpu_options.allow_growth = False
     with tf.Session(config = tf_config) as sess:
     #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         if not config.is_test:
@@ -139,4 +139,5 @@ def main(_):
             #print("Perplexity: {}".format(perplexity))
 
 if __name__ == "__main__":
+    logging.basicConfig(filename='log.train', level=logging.DEBUG) 
     tf.app.run()

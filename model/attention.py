@@ -10,6 +10,8 @@ from datetime import datetime
 from bleu.length_analysis import process_files
 from model import Model
 from utils import *
+import logging
+import sys
 import tensorflow as tf
 import numpy as np
 import math
@@ -38,7 +40,7 @@ class AttentionNN(Model):
         self.dropout       = config.dropout 
         
         #Tensorflow: main parameters
-        self.lr             = config.lr_init
+        self.lr_init        = config.lr_init
         self.batch_size     = config.batch_size
         self.max_grad_norm  = config.max_grad_norm
         self.optimizer_name = config.optimizer_name
@@ -73,8 +75,19 @@ class AttentionNN(Model):
             raise Exception("[!] Directory {} not found".format(self.checkpoint_dir))
 
     @timeit
-    def build_variables(self): 
-        self.global_step = tf.Variable(0, trainable=False, name="global_step")
+    def build_variables(self):
+        self.log_name    = tf.get_variable("log_name", 
+                                            dtype = tf.string,
+                                            trainable=False, 
+                                            initializer = self.get_log_name())
+        self.global_step = tf.get_variable("global_step", 
+                                            dtype = tf.int32,
+                                            trainable=False, 
+                                            initializer = 0)
+        self.epoch       = tf.get_variable("epoch", 
+                                            dtype = tf.int32,
+                                            trainable=False, 
+                                            initializer = 0)
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
         self.valid_loss = tf.placeholder(tf.float32, shape=[])
         self.bleu = tf.placeholder(tf.float32, shape=[])
@@ -287,7 +300,7 @@ class AttentionNN(Model):
         
         self.test_summarizer = tf.merge_summary([tf.scalar_summary("Validation Loss", self.valid_loss), 
                                                  tf.scalar_summary("BLEU", self.bleu)])
-        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),
+        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.log_name.eval()),
                      self.sess.graph)
 
     def lr_update(self):
@@ -296,6 +309,7 @@ class AttentionNN(Model):
             if self.epoch > 5 and self.global_step.eval() % 5000 == 0:
                 self.lr = self.lr * 0.5
                 print("Updating learning rate to {}".format(self.lr))
+                logging.info("Updating learning rate to {}".format(self.lr))
         #adaptive
         if False:
             if self.global_step.eval() % self.patience == 0 \
@@ -304,6 +318,7 @@ class AttentionNN(Model):
                 self.best_loss = np.min(self.losses[-self.patience:-1]) 
                 self.lr = self.lr * 0.5
                 print("Updating learning rate to {}".format(self.lr))
+                logging.info("Updating learning rate to {}".format(self.lr))
         
     def train_iter(self, dsource, source_len, dtarget, target_len):
         output = self.sess.run([self.loss, self.optimizer, self.summarizer],
@@ -318,13 +333,17 @@ class AttentionNN(Model):
         return output
 
     @timeit 
-    def train_epoch(self, epoch):
+    def train_epoch(self):
+        epoch = self.epoch.eval()
+        self.lr = self.lr_init * (0.5 ** (epoch - 5)) if epoch > 5 else self.lr_init 
         for dsource, source_len, dtarget, target_len in self.iterator.train_batch():
             outputs = self.train_iter(dsource, source_len, dtarget, target_len) 
-            step = self.global_step.eval() 
+            step  = self.global_step.eval() 
+            epoch = self.epoch.eval()
             self.writer.add_summary(outputs[-1], step)
             if step % 10 == 1:
                 print("Epoch: {}, Iteration: {}, Loss: {}".format(epoch, step, outputs[0]))
+                logging.info("Epoch: {}, Iteration: {}, Loss: {}".format(epoch, step, outputs[0]))
             if step % 100 == 1:
                 valid_loss = self.test()
                 bleu = self.sample()
@@ -332,6 +351,7 @@ class AttentionNN(Model):
                 self.writer.add_summary(self.sess.run([self.test_summarizer], 
                     {self.valid_loss: valid_loss, self.bleu: bleu})[0], step)
                 print("Epoch: {}, Iteration: {}, Validation Loss: {}, BLEU: {}".format(epoch, step, valid_loss, bleu))
+                logging.info("Epoch: {}, Iteration: {}, Validation Loss: {}, BLEU: {}".format(epoch, step, valid_loss, bleu))
             if step % 1000 == 1 and step > 1000: 
                 self.save() 
               
@@ -339,15 +359,15 @@ class AttentionNN(Model):
         if not self.saver:
             self.build_model()
         N = int(math.ceil(self.train_size/self.batch_size))
-        for epoch in xrange(self.epochs):
-            self.epoch = epoch 
-            print("In epoch {}".format(epoch))
-            self.train_epoch(epoch)
-            self.lr_update()
+        for _ in xrange(self.epochs):
+            self.train_epoch()
+            self.epoch.assign_add(1)
+            #self.lr_update()
             #Early stop
             step = self.global_step.eval() 
             if step > 20 * self.patience and np.min(self.valid_losses[-20*self.patience:-1]) > np.min(self.valid_losses):
                 print("EARLY STOP") 
+                logging.info("EARLY STOP") 
                 break
    
     @timeit 
@@ -414,7 +434,7 @@ class AttentionNN(Model):
                     print(" ".join(target_sentence), file=prediction_file)
         bleu = 0
         try:
-            bleu = process_files(self.prediction_data_path, self.truth_data_path, True) 
+            bleu = process_files(self.prediction_data_path, self.truth_data_path, False) 
         except Exception:
             pass
         return bleu 
@@ -431,5 +451,5 @@ class AttentionNN(Model):
             ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
             if ckpt and ckpt.model_checkpoint_path:
                 self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-            else:
-                raise Exception("[!] No checkpoint found")
+            #else:
+            #    raise Exception("[!] No checkpoint found")

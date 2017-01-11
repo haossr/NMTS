@@ -65,7 +65,7 @@ class Model(object):
         #tf.scalar_summary("loss", self.loss)
         #tf.scalar_summary("best training loss", self.best_loss)
         self.summarizer = tf.merge_all_summaries()
-        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.get_log_name()),\
+        self.writer = tf.train.SummaryWriter("./logs/{}".format(self.log_name().eval()),\
                  self.sess.graph)
 
     @timeit
@@ -144,13 +144,13 @@ class Model(object):
         print('-------------Graph building') 
         self.build_graph()
         print('There are {} parameters in the graph.'.format(self.countParameters())) 
+        print('-------------Variable initialization') 
+        self.initialization()
         print('-------------Optimizer building') 
         self.build_optimizer() 
         print('-------------Saver, writer and summarizer building') 
         self.build_other_helpers() 
-        print('-------------Variable initialization') 
-        self.initialization()
-   
+           
     def build_test_model(self):
         print('-------------Variable building') 
         self.build_variables() 
@@ -202,8 +202,8 @@ class Model(object):
         ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-        else:
-            raise Exception("[!] No checkpoint found")
+        #else:
+        #    raise Exception("[!] No checkpoint found")
 
     def countParameters(self): 
         total_parameters = 0
